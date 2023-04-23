@@ -1,28 +1,18 @@
-from fastapi import FastAPI, Response, status, HTTPException
-from pydantic import BaseModel
+from fastapi import FastAPI, Response, status, HTTPException, Depends
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import time
-from . import models
-from .database import engine, SessionLocal
+from . import models, schemas
+from .database import engine, get_db
+from sqlalchemy.orm import Session
+from typing import List
+
 
 models.Base.metadata.create_all(bind=engine)
 
 
 app = FastAPI()
 
-# Dependency
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-class Item(BaseModel):
-    title : str
-    price: int
-    inventory: int
 
 
 while True:
@@ -38,56 +28,54 @@ while True:
 
 
 
-@app.get("/")
-def root():
-    cursor.execute("""SELECT * FROM products""")
-    products = cursor.fetchall()
-    return {"data": products}
+@app.get("/items", response_model=List[schemas.Product])
+def test_posts(db: Session = Depends(get_db)):
+    products = db.query(models.Product).all()
+    return products
 
 
-@app.post("/items", status_code= status.HTTP_201_CREATED)
-def add_item(item : Item):
-    cursor.execute("""INSERT INTO products (name, price, inventory) VALUES (%s, %s, %s) RETURNING * """, (item.title, item.price, item.inventory))
-    new_item = cursor.fetchone()
+@app.post("/items", status_code= status.HTTP_201_CREATED, response_model= schemas.Product)
+def add_item(item : schemas.ProductCreate, db: Session = Depends(get_db)):
+    new_item = models.Product(**item.dict())
+    db.add(new_item)
+    db.commit()
+    db.refresh(new_item)
+    return new_item
 
-    conn.commit()
-    return {"data": new_item}
 
 
-
-@app.get("/items/{id}")
-def get_item(id: int, responce: Response):
-
-    cursor.execute("""SELECT * FROM products WHERE id = %s """, (str(id),))
-    product = cursor.fetchone()
+@app.get("/items/{id}", response_model= schemas.Product)
+def get_item(id: int, db: Session = Depends(get_db)):
+    product = db.query(models.Product).filter(models.Product.id == id).first()
     if not product:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"item with id {id} not found")
     
-    return {"data": product}
+    return product
     
 
 
 @app.delete("/items/{id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_item(id: int):
-    cursor.execute("""DELETE FROM products WHERE id = %s RETURNING * """, (str(id),))
-    deleted_item = cursor.fetchone()
-    conn.commit()
-
-    if not deleted_item:
+def delete_item(id: int, db: Session = Depends(get_db)):
+    product = db.query(models.Product).filter(models.Product.id == id)
+    if not product.first():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"item with id {id} not found")
-
+    
+    product.delete(synchronize_session=False)
+    db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@app.put("/items/{id}")
-def update_item(id: int, item:Item):
-    cursor.execute("""UPDATE products SET name = %s, price = %s, inventory = %s WHERE id = %s RETURNING *""", (item.title, item.price, item.inventory, str(id)))
-    updated_item = cursor.fetchone()
-    conn.commit()
-    if not updated_item:
+
+@app.put("/items/{id}", response_model= schemas.Product)
+def update_item(id: int, item:schemas.ProductCreate, db: Session = Depends(get_db)):
+    product_query = db.query(models.Product).filter(models.Product.id == id)
+
+    if not product_query.first():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"item with id {id} not found")
     
-    return {"updated": id, "data" : updated_item}
+    product_query.update(item.dict(), synchronize_session=False)
+    db.commit()
+    return product_query.first()
 
 
 
