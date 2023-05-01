@@ -1,5 +1,6 @@
-from sqlalchemy import Column, Integer, String, Boolean, TIMESTAMP, TextClause
+from sqlalchemy import Column, Integer, String, Boolean, TIMESTAMP, TextClause, ForeignKey
 from .database import Base
+from sqlalchemy.orm import relationship
 
 class Product(Base):
     __tablename__ = "products"
@@ -10,6 +11,9 @@ class Product(Base):
     inventory = Column(Integer, nullable=False, server_default=TextClause("0"))
     is_sale = Column(Boolean, server_default=TextClause("False"))
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=TextClause("Now()"))
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+
+    owner = relationship("User")
 
 
 class User(Base):
