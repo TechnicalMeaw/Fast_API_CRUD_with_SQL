@@ -31,6 +31,14 @@ class Product(ProductBase):
         orm_mode = True
 
 
+class ProductOut(BaseModel):
+    Product: Product
+    votes : int
+
+    class Config:
+        orm_mode = True
+
+
 
 class UserCreate(BaseModel):
     email: EmailStr
